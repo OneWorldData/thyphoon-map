@@ -8,4 +8,4 @@ The aim is to show how big the tropical cyclones really are.
 
 Hovering over the polygons shows an weather image of the tropical cyclone.
 
-Demonstration: http://teamdata.oneworld.nl/maps/typhoon/typhoon_map.html
+[Demonstration] (http://teamdata.oneworld.nl/maps/typhoon/typhoon_map-en.html)
