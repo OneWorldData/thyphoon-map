@@ -1,0 +1,429 @@
+<html>
+<head>
+<title>Volg de orkaan</title>
+<style>
+   html { height: 100%; }
+   body { height: 100%; margin: 0; padding: 0; }
+   #map_canvas { height: 100%; }
+   #checkboxes {
+   top: 50px;
+   right: 20px;
+   font-family: 'arial', 'sans-serif';
+   font-size: 12px;
+   background-color: white;
+   padding: 5px 10px;
+
+    }
+	#info {
+	position: absolute;
+   top: 30px;
+   right: 20px;
+	bottom: 100px;
+	padding: 10px;
+	padding-top: 30px;
+   background-color: white;
+	font-size: 12px;
+   border: 1px solid gray;
+	font-family: arial;
+
+	 }
+		
+	.title {
+	margin-top: 10px;
+	margin-bottom: 5px;
+	font-size: 14px;
+	font-weight: bold;
+	background-color: #ddd;
+	 }
+
+	text {
+	text-anchor: middle;
+	font-size: 30px;
+	fill: #FFF;
+	}
+
+	#hide {
+	position: absolute;
+   top: 31px;
+	right: 21px;
+ 	padding: 2px; 
+
+	}
+	
+	.typhoonimage {
+	width: 280px;
+	height: 187px;
+	position: absolute;
+	background: none repeat scroll 0 0 white;
+	}
+
+  .tabs {
+  position: relative;   
+  min-height: 150px; /* This part sucks */
+  clear: both;
+  width: 320px;
+  height: 100%;
+  }
+
+  .tab {
+  float: left;
+	
+
+ 	}
+  .tab label {
+  background: #fff; 
+  padding: 10px; 
+  margin-left: -1px; 
+  position: relative;
+  left: 1px; 
+  }
+
+  .tab [type=radio] {
+  display: none;   
+  }
+
+  .content {
+  position: absolute;
+  top: 28px;
+  background: white;
+  width: 300px;
+  height: 90%;
+  right: 10;
+  bottom: 10;
+  overflow-y: auto;
+  }
+
+  [type=radio]:checked ~ label {
+  background: #ddd;
+  border-bottom: 1px solid white;
+  z-index: 2;
+  }
+
+  [type=radio]:checked ~ label ~ .content {
+  z-index: 1;
+}
+
+</style>
+
+<script type="text/javascript" src="https://maps.googleapis.com/maps/api/js?v=3.exp&signed_in=true&libraries=geometry"></script>
+<script type="text/javascript" src="scripts/downloadxml.js"></script>
+<script type="text/javascript">
+
+var map = [];
+var linePath = [];
+var layers = []; // typhoons circles
+var paths = []; // typhoons paths
+var centers = []; // centers for circles
+var linePaths = []; // centers for paths
+var visible = []; // visible on map?
+var r64 = [];
+var r34 = [];
+
+function getCirclePoints(center, radius, numPoints, clockwise) {
+// src: https://stackoverflow.com/questions/14397874/draw-ring-not-circle-in-google-maps-api
+
+	var points = []
+	for (var i = 0; i < numPoints; ++i) {
+        var angle = i * 360 / numPoints;
+        if (!clockwise) {
+            angle = 360 - angle;
+		  }
+
+	var p = google.maps.geometry.spherical.computeOffset(center, radius, angle);
+   points.push(p);
+
+	}
+
+   points.push(points[0]);
+   return points;
+
+}
+
+function drawCircle(name, latlng, color, rad64, rad34, onmap) {
+
+
+	var circle = new google.maps.Polygon({
+    paths: [
+        getCirclePoints(latlng, rad64, 32, true),
+        getCirclePoints(latlng, rad34, 32, true),
+    	],
+
+       title: name,
+		 map: onmap,
+       fillColor: color,
+		 fillOpacity: 0.6,
+		 strokeOpacity: 1,
+       strokeColor: "#FFF",
+	    strokeWeight: 1,
+		 draggable: true,
+		 geodesic: true,
+
+});
+
+	console.log(name)
+
+	google.maps.event.addListener(circle, "mouseover", function() {
+  		circle.setOptions({fillOpacity: 0.8});
+  		circle.setOptions({strokeColor: '#111'});
+		map.getDiv().setAttribute('title', this.get('title'));
+		document.getElementById(name).style.visibility = 'visible';
+   });
+   google.maps.event.addListener(circle, "mouseout", function() {
+      circle.setOptions({fillOpacity: 0.6});
+  		circle.setOptions({strokeColor: '#EEE'});
+		map.getDiv().removeAttribute('title');
+		document.getElementById(name).style.visibility = 'hidden';
+   });
+
+	layers.push(circle);
+
+}
+
+function drawLine(name, linepath, onmap) {
+
+	var line = new google.maps.Polyline({
+		title: name,
+   	path: linepath,
+	   strokeWeight: 1,
+   	strokeOpacity: 0.8,
+//	   draggable: true,
+//   	geodesic: true,
+		map: onmap,
+});
+
+//	console.log(name);
+
+	google.maps.event.addListener(line, "mouseover", function() {
+//  		line.setOptions({strokeOpacity: 0.8});
+		map.getDiv().setAttribute('title', this.get('title'));
+   });
+   google.maps.event.addListener(line, "mouseout", function() {
+//     line.setOptions({strokeOpacity: 0.5});
+		map.getDiv().removeAttribute('title');
+   });
+
+	paths.push(line);
+}
+
+function initialize() {
+
+	var myLatLng = new google.maps.LatLng(22.1,99.8);
+   	var myOptions = {
+    	zoom: 2,
+	   minZoom: 2,
+  	 	maxZoom: 4,
+	   center: myLatLng,
+   	mapTypeId: google.maps.MapTypeId.TERRAIN
+	}
+
+   map = new google.maps.Map(document.getElementById("map_canvas"), myOptions);
+
+	downloadUrl("typhoons.xml", function(doc) {
+  	var xmlDoc = xmlParse(doc);
+   var circles = xmlDoc.documentElement.getElementsByTagName("circle");
+	var lines = xmlDoc.documentElement.getElementsByTagName("line");	
+
+   for (var i = 0; i < circles.length; i++) {
+         // obtain the attribues of each marker
+		
+		var name = circles[i].getAttribute("name")
+      var lat = parseFloat(circles[i].getAttribute("lat"));
+	   var lng = parseFloat(circles[i].getAttribute("lng"));
+      latlng = new google.maps.LatLng(lat,lng);
+      var color = circles[i].getAttribute("color");
+      var rad64 = parseFloat(circles[i].getAttribute("rad64"));
+      var rad34 = parseFloat(circles[i].getAttribute("rad34"));
+		var onmap = circles[i].getAttribute("onmap");
+			if (onmap === "map") {
+				 onmap = map
+				} else {
+				 onmap = null
+				};
+       // create the marker
+		//console.log(onmap);
+		
+      var circle = drawCircle(name, latlng, color, rad64, rad34, onmap);
+		centers.push(latlng);
+		r34.push(rad34);
+		r64.push(rad64);
+		visible.push(onmap);
+		}	
+
+	for (var i = 0; i < lines.length; i++) {
+		
+		var name = lines[i].getAttribute("name");
+		var coor = lines[i].getAttribute("coordinates");
+		var path = [];	
+
+		// make array of arrays from string and create LatLng object
+		var coordinates = coor.split(";")
+		for (var c = 0; c < coordinates.length; c++) {
+			var ll = coordinates[c].split(",");
+      	var tempLatLng = new google.maps.LatLng(parseFloat(ll[0]) ,parseFloat(ll[1]));
+      	path.push(tempLatLng);
+	   }
+	
+		// change string to objects
+		var onmap = lines[i].getAttribute("onmap");
+		if (onmap === "map") {
+              onmap = map
+             } else {
+              onmap = null
+             };
+
+		var line = drawLine(name, path, onmap);
+		linePaths.push(path);
+		
+		}
+	});
+
+var yourCenter = new google.maps.LatLng(22.1,99.8);
+
+}
+
+function toggleLayer(i) {
+	if (layers[i].getMap() === null) {
+		layers[i].setMap(map);
+		paths[i].setMap(map);
+	} else {
+		layers[i].setMap(null);
+		layers[i].setOptions({paths: [getCirclePoints(centers[i], r64[i], 32, true),
+												getCirclePoints(centers[i], r34[i], 32, true),
+											  ],});
+
+//		layers[i].setOptions({center: centers[i]});
+ 		paths[i].setMap(null);
+//    paths[i].setOptions({path: linePaths[i]});
+
+	}
+}
+
+
+function reset() {
+	for (var i = 0; i < layers.length; i++) {
+		layers[i].setOptions({paths: [getCirclePoints(centers[i], r64[i], 32, true),
+												getCirclePoints(centers[i], r34[i], 32, true),
+											  ],});
+//		layers[i].setOptions({center: centers[i]});
+//		layers[i].setOptions({map: visible[i]});
+//		paths[i].setOptions({path: linePaths[i]});
+//		paths[i].setOptions({map: visible[i]});
+
+	}
+}
+
+function hide_info(id) {
+	if (document.getElementById(id).style.visibility === 'visible') {;
+		document.getElementById(id).style.visibility = 'hidden';
+		} else {
+		document.getElementById(id).style.visibility = 'visible';
+		}
+
+}
+
+
+	
+</script>
+</head>
+
+<body onload="initialize()">
+<div id="map_canvas"></div>
+<div id="info" style="visibility: visible">
+<div class="tabs">
+<!-- src: https://css-tricks.com/functional-css-tabs-revisited/ -->
+
+	<div class="tab">
+       <input type="radio" id="tab-2" name="tab-group-1" checked>
+       <label for="tab-2">Legenda</label>
+		 <div class="content">
+		 <p>Op de kaart zie je de routes en grootte van een aantal tropische stormen.</p>
+		<div class="title">Klassen: (gemeten in km/h)</div>
+  		 <svg height="70" width="50"><circle r="20" cx="25" cy="25" fill="cyan"/><text dy=".3em" x="50%" y="25">1</text><text x="50%" y="60" style="fill:currentColor; font-size:12px">117-152 </text></svg>  
+		 <svg height="70" width="50"><circle r="20" cx="25" cy="25" fill="blue"/><text dy=".3em" x="50%" y="25">2</text><text x="50%" y="60" style="fill:currentColor; font-size:12px">153-177 </text></svg>
+  		 <svg height="70" width="50"><circle r="20" cx="25" cy="25" fill="#ffcc00"/><text dy=".3em" x="50%" y="25">3</text><text x="50%" y="60" style="fill:currentColor; font-size:12px">178-209 </text></svg>
+  		 <svg height="70" width="50"><circle r="20" cx="25" cy="25" fill="orange"/><text dy=".3em" x="50%" y="25">4</text><text x="50%" y="60" style="fill:currentColor; font-size:12px">210-249 </text></svg>
+		 <svg height="70" width="50"><circle r="20" cx="25" cy="25" fill="red"/><text dy=".3em" x="50%" y="25">5</text><text x="50%" y="60" style="fill:currentColor; font-size:12px">250+</text></svg>
+
+		<div class="title">Windkracht en diameter</div>
+ 		<p>De diameter van de cirkels komt overeen met dat gedeelte van de tropische storm waar de wind snelheden van boven de 117 kilometer per uur bereikte.</p>
+		<img src="/maps/typhoon/img/tyfoon-legenda2.png">
+		<p>Rondom de tropische storm bevindt zich een nog grotere cirkel van harde wind en windsnelheden tot 117 kilometer per uur.</p>
+		<div style="float:left; padding-right:10px"><img src="/maps/typhoon/img/tyfoon-legenda3.png"></div>
+		<p>Als je de storm versleept over de kaart, veranderen ze van vorm en oppervlakte. Dat komt door de <a href="http://nl.wikipedia.org/wiki/Mercatorprojectie">kaartprojectie</a>: hoe verder van de evenaar, hoe groter de landen zijn weergegeven. De stormen veranderen slechts mee, zodat de relatieve grote altijd klopt.</p>
+		 </div>
+	</div>
+  		
+	<div class="tab">
+       <input type="radio" id="tab-3" name="tab-group-1">
+       <label for="tab-3">Kies orkaan</label>
+
+		 <div class="content">
+
+		<div style="float: left"><svg width="280" height="187"><line x1="0" y1="0" x2="280" y2="185" style="stroke:rgb(0,0,0);stroke-width:2" /><line x1="280" y1="0" x2="0" y2="185" style="stroke:rgb(0,0,0);stroke-width:2" /></svg></div>
+		<div id="Pam" style="position: absolute; visibility:hidden"><img src="/maps/typhoon/img/Pam.gif"></div>
+		<div id="Haiyan" style="position: absolute; visibility:hidden"><img src="/maps/typhoon/img/Haiyan.gif"></div>
+		<div id="Hagupit" style="position: absolute; visibility:hidden"><img src="/maps/typhoon/img/Hagupit.gif"></div>
+		<div id="Katrina" style="position: absolute; visibility:hidden"><img src="/maps/typhoon/img/Katrina.gif"></div>
+		<div id="Irene" style="position: absolute; visibility:hidden"><img src="/maps/typhoon/img/Irene.jpg"></div>
+		<div id="Sandy" style="position: absolute; visibility:hidden"><img src="/maps/typhoon/img/Sandy.gif"></div>
+		<div id="Bertha" style="position: absolute; visibility:hidden"><img src="/maps/typhoon/img/Bertha.gif"></div>
+		<div id="Noord Atlantic gemiddeld" style="position: absolute; visibility:hidden"><img src="/maps/typhoon/img/NA.jpg"></div>
+		<div id="Centraal en Oost Pacific gemiddeld" style="position: absolute; visibility:hidden"><img src="/maps/typhoon/img/CSP.jpg"></div>
+		<div id="Noord West Pacific gemiddeld" style="position: absolute; visibility:hidden"><img src="/maps/typhoon/img/NWP.jpg"></div>
+		<div id="Ita" style="position: absolute; visibility:hidden"><img src="/maps/typhoon/img/Ita.gif"></div>
+		<div id="Noul" style="position: absolute; visibility:hidden"><img src="/maps/typhoon/img/Noul.gif"></div>
+
+		<p><i>Beweeg je muis over de orkaan op de kaart voor een afbeelding</i></p>
+		<div class="title">Noord Atlantische oceaan</div>				
+  		<input type="checkbox" autocomplete="off" onClick="toggleLayer(7)"/>Gemiddeld*<br />
+		<input type="checkbox" autocomplete="off" checked onClick="toggleLayer(6)"/>Orkaan Bertha (2014) <br />
+		<input type="checkbox" autocomplete="off" checked onClick="toggleLayer(4)"/>Orkaan Sandy (2012) <br />
+		<input type="checkbox" autocomplete="off" onClick="toggleLayer(5)"/>Orkaan Irene (2011) <br />
+  		<input type="checkbox" autocomplete="off" onClick="toggleLayer(3)"/>Orkaan Katrina (2005) <br />	
+
+		<div class="title">Noordwestelijke Stille Oceaan</div>
+  		<input type="checkbox" autocomplete="off" onClick="toggleLayer(9)"/>Gemiddeld*<br />	
+ 		<input type="checkbox" autocomplete="off" checked onClick="toggleLayer(11)"/>Tyfoon Noul (2015) <br />
+  		<input type="checkbox" autocomplete="off" checked onClick="toggleLayer(1)"/>Tyfoon Hagupit (2014) <br />
+ 		<input type="checkbox" autocomplete="off" onClick="toggleLayer(0)"/>Tyfoon Haiyan (2013) <br />
+		
+		<div class="title">Centaal- en Oosterlijke Stille Oceaan</div>
+  		<input type="checkbox" autocomplete="off" onClick="toggleLayer(8)"/>Gemiddeld* <br />
+		
+		<div class="title">Zuidelijk halfrond</div>
+		<input type="checkbox" autocomplete="off" checked onClick="toggleLayer(2)"/>Cycloon Pam (2015) <br />
+		<input type="checkbox" autocomplete="off" checked  onClick="toggleLayer(10)"/>Cycloon Ita (2014) <br />
+		
+		<br />
+	  	<input type="button" id="reset" style="padding: 2px;"name="shorttext" value="Start opnieuw" onClick="reset()"><br />
+		<p>* Afbeeldingen laten zien alle routes en sterkte van tropische cyclonen in de periode 1985 -  2005 </p>
+			</div>
+	</div>
+
+<div class="tab">
+       <input type="radio" id="tab-1" name="tab-group-1">
+       <label for="tab-1">Info</label>
+			<div class="content">
+			<h2>Volg de orkaan</h2>
+		<p>Extreem is het nieuwe normaal. Volgens het <a href="http://www.ipcc.ch/publications_and_data/ar4/wg1/en/ch10s10-3-6-3.html" target="_blank">Intergovernmental Panel on Climate Change (IPCC)</a> moeten we ons wereldwijd voorbereiden op extreem weer. Zo zullen tropische stormen vermoedelijk in kracht toenemen.</p>
+		<p><a href="www.oneworld.nl/filippijnen" target="_blank">OneWorld reisde naar de Filippijnen</a> om te zien wat dat betekent. Daar raasde in november 2013 Haiyan, de sterkste typhoon ooit, over de eilandengroep. In december 2014 volgde weer een flinke: typhoon Hagupit. Ook de Oostkust van de Verenigde Staten wordt met regelmaat geteisterd door orkanen. Katrina zal bij iedereen nog op het netvlies staan. En zelfs in Nederland zijn soms de gevolgen van orkanen te merken, vorig jaar zorgde Bertha ook hier voor een fikse storm.</p>
+		<div class="title" >Volg de orkaan</div>
+		<p>Deze kaart laat zien hoe groot de tropische stormen zijn, en welke weg ze afleggen. Door met de storm te slepen over de kaart, kun je ook zien welk gebied hij zou bestrijken als hij bijvoorbeeld over Nederland was gegaan.</p><br>
+		<h2>Wat is een orkaan?</h2>
+			<p>In Nederland meten we de snelheid van de wind met de windschaal van Beaufort. Die schaal gaat tot windkracht 12 voor windsnelheden vanaf 117 kilometer per uur.</p>
+			<div class="title">Orkanen</div>
+			<p>Meteorologen noemen stormen met windkracht 12 tropische stormen (ook: orkanen, cyclonen en tyfonen genoemd, afhankelijk van het gebied waar ze ontstaan). Maar de ene orkaan is de andere niet. Daarom onderscheidt de schaal van Saffir-Simpson orkanen op basis van windsnelheid en de mogelijk schade die ze kunnen aanrichten.</p>
+			<div class="title">Gevaarlijk</div>
+			<p>Klasse 1 van Saffir-Simpson is voor windsnelheden tussen de 118 en 152 kilometer per uur, die kunnen leiden tot lichte schade. Tropische stormen in klasse 3 of hoger worden grote orkanen genoemd: naast het beschadigen van bebouwing kunnen die orkanen ook mensenlevens opeisen. </p>
+			<div class="title">Verwoestend</div>
+			<p>Orkanen in klasse 5 zijn met windsnelheden van meer dan 248 kilometer per uur het meest verwoestend: daken worden weggeblazen, er is grote schade aan gebouwen, en doorgaans overleven mens en dier de storm niet.</p>
+			<p>Meer over <a href="www.knmi.nl/cms/content/20034/tropische_stormen_hurricanes_cyclonen_en_tyfonen" target="_blank">orkanen</a>, <a href="http://www.knmi.nl/cms/content/28976/windschaal_van_beaufort_compleet" target="_blank">Beaufort</a>, en <a href="http://www.knmi.nl/cms/content/28191/schaal_voor_hurricanes_volgens_saffir__simpson" target="_blank">Saffir-Simpson</a> bij het <a href="http://www.knmi.nl/" target="_blank">KNMI</a>.</p>
+			</div>
+</div>
+	</div>
+</div>
+	  	<input type="button" id="hide" name="shorttext" value="Info verstoppen" onClick="hide_info('info')"><br />
+</body>
+
+</html>
+
